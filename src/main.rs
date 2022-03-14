@@ -15,9 +15,9 @@ use clap::Parser;
 struct Args {
     /// Route target IP
     target: String,
-    /// Domain suffices that routes should be added
+    /// Suffices of domains that should be routed via target IP
     domain_suffices: Vec<String>,
-    /// Network interface to capture DNS traffic on
+    /// Network interface to capture DNS traffics on
     #[clap(short = 'i', long)]
     net_if: Option<String>,
 }
@@ -32,10 +32,11 @@ struct DnsAutoRoutes {
 impl DnsAutoRoutes {
     pub fn new(args: &Args) -> DnsAutoRoutes {
         let target = Ipv4Addr::from_str(args.target.as_str()).unwrap();
-        let corp_zones = args.domain_suffices.iter()
-            .filter_map(|s| {
-                Name::from_utf8(s).ok()
-            }).collect();
+        let corp_zones = args
+            .domain_suffices
+            .iter()
+            .filter_map(|s| Name::from_utf8(s).ok())
+            .collect();
         return DnsAutoRoutes {
             target,
             corp_zones,
@@ -45,23 +46,23 @@ impl DnsAutoRoutes {
     }
 
     pub fn start(&mut self) {
-        info!("Domain Suffices: {}", self.corp_zones.iter().map(|z| {
-            z.to_utf8()
-        }).collect::<Vec<String>>().join(", "));
+        info!(
+            "Domain Suffices: {}",
+            self.corp_zones
+                .iter()
+                .map(|z| { z.to_utf8() })
+                .collect::<Vec<String>>()
+                .join(", ")
+        );
         info!("Target IP: {}", self.target);
-        let main_device = match &self.net_if {
-            Some(if_name) => {
-                Device::from(if_name.as_str())
-            }
-            _ => {
-                Device::lookup().unwrap()
-            }
+        let device = match &self.net_if {
+            Some(if_name) => Device::from(if_name.as_str()),
+            _ => Device::lookup().unwrap(),
         };
-        info!("Capture on {:?}", main_device.name);
-        let mut cap = Capture::from_device(main_device)
+        info!("Capture on {:?}", device.name);
+        let mut cap = Capture::from_device(device)
             .unwrap()
             .promisc(true)
-            .snaplen(4096)
             .immediate_mode(true)
             .open()
             .unwrap();
