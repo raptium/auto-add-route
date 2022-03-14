@@ -34,6 +34,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "auto-add-route"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "etherparse",
+ "log",
+ "pcap",
+ "trust-dns-proto",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -98,18 +110,6 @@ name = "data-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
-
-[[package]]
-name = "dns-logger"
-version = "0.1.0"
-dependencies = [
- "clap",
- "env_logger",
- "etherparse",
- "log",
- "pcap",
- "trust-dns-proto",
-]
 
 [[package]]
 name = "enum-as-inner"
