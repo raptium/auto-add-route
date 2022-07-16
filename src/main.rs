@@ -1,14 +1,20 @@
 use etherparse::SlicedPacket;
-use log::{error, info, trace, warn};
+use log::{error, info, log, trace, warn};
 use pcap::{Capture, Device};
 use std::collections::HashSet;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, ToSocketAddrs};
 use std::process::Command;
 use std::str::FromStr;
+use std::thread;
+use std::time::Duration;
 use trust_dns_proto::op::{Message, MessageType};
 use trust_dns_proto::rr::{Name, RData, RecordType};
 
+use crate::store::{init_dns_log_store, LogEntry};
 use clap::Parser;
+use etherparse::packet_filter::ElementFilter::No;
+
+mod store;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -20,16 +26,33 @@ struct Args {
     /// Network interface to capture DNS traffics on
     #[clap(short = 'i', long)]
     net_if: Option<String>,
+    /// Path of database to store recent DNS query history
+    #[clap(short = 'd', long, value_parser, value_hint = clap::ValueHint::FilePath)]
+    db_path: Option<String>,
 }
 
-struct DnsAutoRoutes {
+struct DnsAutoRoutes<'a> {
     target: Ipv4Addr,
     alias: HashSet<Name>,
     corp_zones: Vec<Name>,
     net_if: Option<String>,
+    store: Option<Box<dyn store::DnsLogStore + 'a>>,
 }
 
-impl DnsAutoRoutes {
+fn replay_logged_entries(entries: Vec<LogEntry>) {
+    thread::spawn(|| {
+        thread::sleep(Duration::from_secs(1)); // delay 1 sec
+        for entry in entries {
+            let addr_port = format!("{}:80", entry.host);
+            match addr_port.to_socket_addrs() {
+                Ok(_) => info!("Resolving logged entry {}", entry.host),
+                Err(e) => warn!("failed to resolving logged entry {}: {}", entry.host, e),
+            }
+        }
+    });
+}
+
+impl<'a> DnsAutoRoutes<'a> {
     pub fn new(args: &Args) -> DnsAutoRoutes {
         let target = Ipv4Addr::from_str(args.target.as_str()).unwrap();
         let corp_zones = args
@@ -37,12 +60,17 @@ impl DnsAutoRoutes {
             .iter()
             .filter_map(|s| Name::from_utf8(s).ok())
             .collect();
-        return DnsAutoRoutes {
+        let store = match &args.db_path {
+            None => None,
+            Some(path) => Some(init_dns_log_store(path).unwrap()),
+        };
+        DnsAutoRoutes {
             target,
             corp_zones,
             alias: HashSet::new(),
             net_if: args.net_if.clone(),
-        };
+            store,
+        }
     }
 
     pub fn start(&mut self) {
@@ -66,6 +94,14 @@ impl DnsAutoRoutes {
             .immediate_mode(true)
             .open()
             .unwrap();
+        let logged_entries = self.load_logged_entries();
+        match logged_entries {
+            None => info!("No logged entries loaded from DB."),
+            Some(e) => {
+                info!("{} logged entries loaded from DB.", e.len());
+                replay_logged_entries(e)
+            }
+        }
         cap.filter("udp port 53", true).unwrap();
         while let Ok(packet) = cap.next() {
             match SlicedPacket::from_ethernet(packet.data) {
@@ -79,6 +115,18 @@ impl DnsAutoRoutes {
                     }
                 },
             }
+        }
+    }
+
+    fn load_logged_entries(&self) -> Option<Vec<LogEntry>> {
+        if self.store.is_none() {
+            return None;
+        }
+        let store = self.store.as_ref().unwrap();
+        let entries = store.load_entries();
+        match entries {
+            Ok(e) => Some(e),
+            Err(_) => None,
         }
     }
 
@@ -100,6 +148,18 @@ impl DnsAutoRoutes {
         }
     }
 
+    fn on_query_corp(&mut self, host: &str) {
+        if self.store.is_none() {
+            return;
+        }
+        let store = self.store.as_mut().unwrap();
+        let r = store.on_query(host.trim_end_matches("."));
+        match r {
+            Ok(_) => {}
+            Err(_) => warn!("Failed to log dns entry in store: {}", host),
+        }
+    }
+
     fn log_dns_response(&mut self, msg: &Message) {
         for ans in msg.answers() {
             let mut is_corp = false;
@@ -109,6 +169,9 @@ impl DnsAutoRoutes {
                     is_corp = true;
                     break;
                 }
+            }
+            if is_corp {
+                self.on_query_corp(&ans.name().to_string())
             }
             match (ans.rr_type(), ans.data()) {
                 (RecordType::A, Some(RData::A(addr))) => {
