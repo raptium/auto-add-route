@@ -1,18 +1,18 @@
-use etherparse::SlicedPacket;
-use log::{error, info, log, trace, warn};
-use pcap::{Capture, Device};
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, ToSocketAddrs};
 use std::process::Command;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
+
+use clap::Parser;
+use etherparse::SlicedPacket;
+use log::{error, info, trace, warn};
+use pcap::{Capture, Device};
 use trust_dns_proto::op::{Message, MessageType};
 use trust_dns_proto::rr::{Name, RData, RecordType};
 
 use crate::store::{init_dns_log_store, LogEntry};
-use clap::Parser;
-use etherparse::packet_filter::ElementFilter::No;
 
 mod store;
 

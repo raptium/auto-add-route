@@ -1,9 +1,7 @@
-use sqlite::{Connection, State};
-use std::error::Error;
-use std::fs::rename;
 use std::ops::Sub;
-use std::ptr::addr_of_mut;
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
+
+use sqlite::Connection;
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
